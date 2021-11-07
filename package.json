@@ -1,0 +1,44 @@
+{
+  "name": "data.task.ts",
+  "version": "1.0.0",
+  "description": "Personal functional Task typeclass implementation",
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "files": [
+    "build/**/*"
+  ],
+  "scripts": {
+    "clean": "del ./build/*",
+    "build": "npm run clean && tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eljou/data.task.ts.git"
+  },
+  "keywords": [
+    "functional",
+    "fp",
+    "task",
+    "async",
+    "promises",
+    "typeclass",
+    "monad"
+  ],
+  "author": "Ernesto Fuentes (eljou)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/eljou/data.task.ts/issues"
+  },
+  "homepage": "https://github.com/eljou/data.task.ts#readme",
+  "dependencies": {
+    "monet": "^0.9.2"
+  },
+  "devDependencies": {
+    "del-cli": "^4.0.1",
+    "eslint": "^8.2.0",
+    "eslint-config-prettier": "^8.3.0",
+    "eslint-plugin-prettier": "^4.0.0",
+    "prettier": "^2.4.1",
+    "typescript": "^4.4.4"
+  }
+}
