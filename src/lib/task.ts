@@ -321,4 +321,13 @@ export class Task<E, R> {
    * @alias fold
    */
   cata = this.fold.bind(this)
+
+  /**
+   * Natural transformation to Promise
+   * You don't know when this could come in handy
+   * @returns {Promise<R>} a Promise equivalent
+   */
+  toPromise(): Promise<R> {
+    return new Promise((resolve, reject) => this.fork(reject, resolve))
+  }
 }
