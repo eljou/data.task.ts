@@ -1,1 +1,1 @@
-export { Task, Result } from './lib/task'
+export { Task } from './lib/task'

@@ -1,15 +1,10 @@
 import { Either } from 'monet'
 
-/**
- * @typedef {Result<E, R>} Result of allSeatle variations of Task
- */
-export type Result<E, R> = { status: 'failed'; err: E } | { status: 'success'; data: R }
-
-const taskToTaskOfResult = <E, R>(t: Task<E, R>): Task<never, Result<E, R>> =>
-  new Task<never, Result<E, R>>((_, res) => {
+const taskToTaskOfEither = <E, R>(t: Task<E, R>): Task<never, Either<E, R>> =>
+  new Task((_, res) => {
     t.fork(
-      err => res({ status: 'failed', err }),
-      succ => res({ status: 'success', data: succ }),
+      err => res(Either.Left(err)),
+      succ => res(Either.Right(succ)),
     )
   })
 
@@ -104,12 +99,12 @@ export class Task<E, R> {
    * @param arr - Array of Tasks to traverse
    * @returns {Task<never, Result<E, R>>} Task of array of never failed Tasks
    */
-  static allSeattleSeq<E, R>(arr: Task<E, R>[]): Task<never, Result<E, R>[]> {
+  static allSeattleSeq<E, R>(arr: Task<E, R>[]): Task<never, Either<E, R>[]> {
     return arr
-      .map(taskToTaskOfResult)
+      .map(taskToTaskOfEither)
       .reduce(
         (acc, x) => x.bind(t => acc.map(listOfT => [...listOfT, t])),
-        Task.of<never, Result<E, R>[]>([]),
+        Task.of<never, Either<E, R>[]>([]),
       )
   }
 
@@ -118,13 +113,13 @@ export class Task<E, R> {
    * @param arr - Array of Tasks to traverse
    * @returns {Task<never, Result<E, R>>} Task of array of never failed Tasks
    */
-  static allSeattle<E, R>(arr: Task<E, R>[]): Task<never, Result<E, R>[]> {
+  static allSeattle<E, R>(arr: Task<E, R>[]): Task<never, Either<E, R>[]> {
     return arr
-      .map(taskToTaskOfResult)
+      .map(taskToTaskOfEither)
       .reduce(
         (acc, tv) =>
-          acc.chain(list => Task.of((el: Result<E, R>) => [...list, el])).apTo(tv),
-        Task.of<never, Result<E, R>[]>([]),
+          acc.chain(list => Task.of((el: Either<E, R>) => [...list, el])).apTo(tv),
+        Task.of<never, Either<E, R>[]>([]),
       )
   }
 
