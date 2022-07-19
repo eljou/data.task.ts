@@ -21,7 +21,12 @@ export function run() {
   ]).fork(
     err => console.log(err),
     succ => {
-      succ.map(e => e.fold(console.error, console.log))
+      succ.map(e =>
+        e.fold(
+          ex => console.error(`ERR: ${ex}`),
+          r => console.log(`SUCC: ${r}`),
+        ),
+      )
       console.timeEnd('run')
     },
   )

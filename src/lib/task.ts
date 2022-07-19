@@ -378,4 +378,14 @@ export class Task<E, R> {
   toPromise(): Promise<R> {
     return new Promise((resolve, reject) => this.fork(reject, resolve))
   }
+
+  /**
+   * Adapts a function that returns a task of void to bypass input and continue composition
+   * @param {(r: I) => Task<E, void>} f - Function that returns a Task<E, void>
+   * @param {I} input - Input of the previous function
+   * @returns A Task<E, I> of the same input I
+   */
+  static tap<E, I>(f: (input: I) => Task<E, void>): (i: I) => Task<E, I> {
+    return input => f(input).map(() => input)
+  }
 }
