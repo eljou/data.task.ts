@@ -8,6 +8,30 @@ const taskToTaskOfEither = <E, R>(t: Task<E, R>): Task<never, Either<E, R>> =>
     )
   })
 
+type GetTaskSuccess<T> = T extends Task<unknown, infer R> ? R : never
+type GetTaskFailure<T> = T extends Task<infer F, unknown> ? F : never
+
+type UnwrapTaskSucceses<T extends readonly any[]> = T extends [infer Head, ...infer Tail]
+  ? [GetTaskSuccess<Head>, ...UnwrapTaskSucceses<Tail>]
+  : []
+
+type DisjoinTaskFailures<T extends readonly any[]> = T extends [infer Head, ...infer Tail]
+  ? GetTaskFailure<Head> | DisjoinTaskFailures<Tail>
+  : never
+
+type RemapTasks<T extends readonly any[]> = Task<
+  DisjoinTaskFailures<T>,
+  UnwrapTaskSucceses<T>
+>
+
+type GetEitherFromTask<T> = T extends Task<infer F, infer S> ? Either<F, S> : never
+
+type MapTasksToEithers<T extends readonly any[]> = T extends [infer Head, ...infer Tail]
+  ? [GetEitherFromTask<Head>, ...MapTasksToEithers<Tail>]
+  : []
+
+type RemapTasksSeattle<T extends readonly any[]> = Task<never, MapTasksToEithers<T>>
+
 /**
  * The `Task<E, R>` structure represents values that depend on time. This
  * allows one to model time-based effects explicitly, such that one can have
@@ -71,55 +95,75 @@ export class Task<E, R> {
   }
 
   /**
-   * Mimics Promise.all() behaviour but runs sequentially a list of Tasks, fails when some one fails
-   * @param {Task<E, R>[]} arr - Array of Tasks to traverse
-   * @returns {Task<E, R[]>} Task of array of resolved Tasks
+   * Transforms a function that throws to Task
+   * @param {() => R} f - Function that returns R and might throw E
+   * @returns {Task<E, R>} the Task
    */
-  static allSeq<E, R>(arr: Task<E, R>[]): Task<E, R[]> {
+  static fromTry<E, R>(f: () => R): Task<E, R> {
+    return new Task((reject, resolve) => {
+      try {
+        return resolve(f())
+      } catch (error) {
+        return reject(error as E)
+      }
+    })
+  }
+
+  /**
+   * Mimics Promise.all() behaviour but runs sequentially a list of Tasks, fails when some one fails
+   * @param {[Task<E, R>, Task<E1, R1>, ... , Task<EN, RN>]} arr - Array of Tasks to traverse
+   * @returns {Task<E | E2 | ... | EN, [R, R1, ... , RN]>} Task of array of resolved Tasks
+   */
+  static allSeq<T extends readonly Task<any, any>[]>(arr: [...T]): RemapTasks<T> {
     return arr.reduce(
       (acc, x) => x.bind(t => acc.map(listOfT => [...listOfT, t])),
-      Task.of<E, R[]>([]),
+      Task.of([]),
     )
   }
 
   /**
    * Mimics Promise.all() behaviour and runs in parallel a list of tasks, fails when some one fails
-   * @param {Task<E, R>[]} arr - Array of Tasks to traverse
-   * @returns {Task<E, R[]>} Task of array of resolved Tasks
+   * @param {[Task<E, R>, Task<E1, R1>, ... , Task<EN, RN>]} arr - Array of Tasks to traverse
+   * @returns {Task<E | E2 | ... | EN, [R, R1, ... , RN]>} Task of array of resolved Tasks
    */
-  static all<E, R>(arr: Task<E, R>[]): Task<E, R[]> {
+
+  static all<T extends readonly Task<any, any>[]>(arr: [...T]): RemapTasks<T> {
     return arr.reduce(
-      (acc, tv) => acc.chain(list => Task.of((el: R) => [...list, el])).apTo(tv),
-      Task.of<E, R[]>([]),
+      (acc, tv) => acc.chain(list => Task.of((el: any) => [...list, el])).apTo(tv),
+      Task.of([]),
     )
   }
 
   /**
    * Mimics Promise.allSeatle() behaviour and runs sequentially a list of Tasks, never fails
-   * @param arr - Array of Tasks to traverse
-   * @returns {Task<never, Result<E, R>>} Task of array of never failed Tasks
+   * @param {[Task<E, R>, Task<E1, R1>, ... , Task<EN, RN>]} arr - Array of Tasks to traverse
+   * @returns {Task<never, [Either<E, R>, Either<E1, R1>, ... , Either<EN, RN>]>} Task of array of resolved Tasks
    */
-  static allSeattleSeq<E, R>(arr: Task<E, R>[]): Task<never, Either<E, R>[]> {
+  static allSeattleSeq<T extends readonly Task<any, any>[]>(
+    arr: [...T],
+  ): RemapTasksSeattle<T> {
     return arr
       .map(taskToTaskOfEither)
       .reduce(
-        (acc, x) => x.bind(t => acc.map(listOfT => [...listOfT, t])),
-        Task.of<never, Either<E, R>[]>([]),
-      )
+        (acc, x: any) => x.bind((t: any) => acc.map(listOfT => [...listOfT, t])),
+        Task.of([]),
+      ) as any
   }
 
   /**
    * Mimics Promise.allSeatle() behaviour and runs in parallel a list of Tasks, never fails
-   * @param arr - Array of Tasks to traverse
-   * @returns {Task<never, Result<E, R>>} Task of array of never failed Tasks
+   * @param {[Task<E, R>, Task<E1, R1>, ... , Task<EN, RN>]} arr - Array of Tasks to traverse
+   * @returns {Task<never, [Either<E, R>, Either<E1, R1>, ... , Either<EN, RN>]>} Task of array of resolved Tasks
    */
-  static allSeattle<E, R>(arr: Task<E, R>[]): Task<never, Either<E, R>[]> {
+  static allSeattle<T extends readonly Task<any, any>[]>(
+    arr: [...T],
+  ): RemapTasksSeattle<T> {
     return arr
       .map(taskToTaskOfEither)
       .reduce(
         (acc, tv) =>
-          acc.chain(list => Task.of((el: Either<E, R>) => [...list, el])).apTo(tv),
-        Task.of<never, Either<E, R>[]>([]),
+          acc.chain((list: any[]) => Task.of((el: any) => [...list, el])).apTo(tv),
+        Task.of([]) as any,
       )
   }
 
@@ -219,6 +263,10 @@ export class Task<E, R> {
     }) as any
   }
 
+  static map<E, R, T>(f: (r: R) => T): (t: Task<E, R>) => Task<E, T> {
+    return t => t.map(f)
+  }
+
   /**
    * Applies the function [f] in the success path of resolution of the Task. Functor interface implementation
    * @param {(r: R) => O} f - Function that transfroms from type R to type O
@@ -252,7 +300,7 @@ export class Task<E, R> {
    * @param {(r: R) => Task<E, O>} f - Function that transfroms from type R to type O
    * @returns {Task<E, O>} A Task containing an element of type O
    */
-  chain<O>(f: (r: R) => Task<E, O>): Task<E, O> {
+  chain<O, E2>(f: (r: R) => Task<E2, O>): Task<E | E2, O> {
     return new Task((reject, resolve) =>
       this.fork(
         (err: E) => reject(err),
@@ -276,7 +324,7 @@ export class Task<E, R> {
    * @param {(e: E) => Task<F, R>} g - Function that transfroms from type E to type F
    * @returns {Task<F, R>} A Task containing an element of type R or failure of type F
    */
-  orElse<F>(g: (e: E) => Task<F, R>): Task<F, R> {
+  orElse<F, O>(g: (e: E) => Task<F, O>): Task<F, R | O> {
     return new Task((reject, resolve) =>
       this.fork(
         (err: E) => g(err).fork(reject, resolve),
