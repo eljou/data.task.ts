@@ -86,6 +86,15 @@ export class Task<E, R> {
   }
 
   /**
+   * Transforms a function that returns a promise to a Task, in this case the promise will be run lazily
+   * @param {() => Promise<R>} p - Promise to convert to a Task
+   * @returns {Task<E, R>} the Task from the Promise
+   */
+  static fromLazyPromise<E, R>(lazyPromise: () => Promise<R>): Task<E, R> {
+    return new Task((reject, resolve) => lazyPromise().then(resolve).catch(reject))
+  }
+
+  /**
    * Applies natural transformation from Either to Task
    * @param {Either<E, R>} e - Either kind from monet
    * @returns {Task<E, R>} the Task from the Either provided

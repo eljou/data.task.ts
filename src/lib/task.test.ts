@@ -36,6 +36,12 @@ describe('Async Task typeclass tests', () => {
     )
   })
 
+  it('should create a Task from a lazy Promise', () => {
+    Task.fromLazyPromise(() => Promise.resolve(1)).fork(throwShouldNotHappen, r =>
+      expect(r).toBe(1),
+    )
+  })
+
   it('should be able to turn into a Promise', done => {
     Task.of(1)
       .toPromise()
