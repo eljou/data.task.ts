@@ -9,12 +9,14 @@
   ],
   "scripts": {
     "clean": "del ./build/*",
+    "lint": "eslint '*/**/*.{js,ts,tsx}' --quiet --fix",
     "build": "npm run clean && tsc",
-    "release": "npx np",
     "test": "jest --detectOpenHandles --runInBand --forceExit",
     "test:watch": "npm test -- --watchAll --runInBand",
     "coverage": "npm test -- --coverage --no-cache --detectOpenHandles",
-    "coverage:watch": "npm run coverage -- --forceExit --watch"
+    "coverage:watch": "npm run coverage -- --forceExit --watch",
+    "prepublishOnly": "npm run build",
+    "release": "np"
   },
   "repository": {
     "type": "git",
