@@ -389,12 +389,22 @@ export class Task<E, R> {
   }
 
   /**
-   * Adapts a function that returns a task of void to bypass input and continue composition
-   * @param {(r: I) => Task<E, void>} f - Function that returns a Task<E, void>
-   * @param {I} input - Input of the previous function
-   * @returns A Task<E, I> of the same input I
+   * Adapts a function that returns a Task<Error, Success> to bypass Success and continue composition
+   * @param {(r: S) => Task<E, void>} f - Function that returns a Task<E, void>
+   * @param {S} success - Success from the previous function
+   * @returns A Task<Error, Success> of the same output Success
    */
-  static tap<E, I>(f: (input: I) => Task<E, void>): (i: I) => Task<E, I> {
+  static tap<E, S>(f: (input: S) => Task<E, void>): (i: S) => Task<E, S> {
     return input => f(input).map(() => input)
+  }
+
+  /**
+   * Adapts a function that returns a Task<Error, Success> to bypass error and continue composition
+   * @param {(r: S) => Task<void, E>} f - Function that returns a Task<void, Error>
+   * @param {E} failure - Failure of the previous function
+   * @returns A Task<Error, Success> of the same failure Error
+   */
+  static rejectTap<E, S>(f: (input: E) => Task<void, S>): (i: E) => Task<E, S> {
+    return failure => f(failure).rejectMap(() => failure)
   }
 }

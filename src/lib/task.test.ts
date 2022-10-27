@@ -133,6 +133,17 @@ describe('Async Task typeclass tests', () => {
       })
   })
 
+  it('should be able to reject tap', () => {
+    const fn = jest.fn().mockImplementation(() => Task.rejected(expect('ok').toBe('ok')))
+
+    Task.rejected(1)
+      .orElse(Task.rejectTap(fn))
+      .fork(f => {
+        expect(fn).toHaveBeenCalled()
+        expect(f).toBe(1)
+      }, throwShouldNotHappen)
+  })
+
   it('should process a series of successful tasks', () => {
     Task.all([Task.of(1), Task.of(2)]).fork(throwShouldNotHappen, ([n1, n2]) => {
       expect(n1).toBe(1)
