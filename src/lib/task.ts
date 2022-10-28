@@ -11,26 +11,15 @@ const taskToTaskOfEither = <E, R>(t: Task<E, R>): Task<never, Either<E, R>> =>
 type GetTaskSuccess<T> = T extends Task<unknown, infer R> ? R : never
 type GetTaskFailure<T> = T extends Task<infer F, unknown> ? F : never
 
-type UnwrapTaskSucceses<T extends readonly any[]> = T extends [infer Head, ...infer Tail]
-  ? [GetTaskSuccess<Head>, ...UnwrapTaskSucceses<Tail>]
-  : []
-
-type DisjoinTaskFailures<T extends readonly any[]> = T extends [infer Head, ...infer Tail]
-  ? GetTaskFailure<Head> | DisjoinTaskFailures<Tail>
+type RemapTasks<T> = T extends readonly (infer X)[]
+  ? Task<GetTaskFailure<X>, { [P in keyof T]: GetTaskSuccess<T[P]> }>
   : never
-
-type RemapTasks<T extends readonly any[]> = Task<
-  DisjoinTaskFailures<T>,
-  UnwrapTaskSucceses<T>
->
 
 type GetEitherFromTask<T> = T extends Task<infer F, infer S> ? Either<F, S> : never
 
-type MapTasksToEithers<T extends readonly any[]> = T extends [infer Head, ...infer Tail]
-  ? [GetEitherFromTask<Head>, ...MapTasksToEithers<Tail>]
-  : []
-
-type RemapTasksSeattle<T extends readonly any[]> = Task<never, MapTasksToEithers<T>>
+type RemapTasksSeattle<T> = T extends readonly any[]
+  ? Task<never, { [P in keyof T]: GetEitherFromTask<T[P]> }>
+  : never
 
 /**
  * The `Task<E, R>` structure represents values that depend on time. This
@@ -123,9 +112,9 @@ export class Task<E, R> {
    * @param {[Task<E, R>, Task<E1, R1>, ... , Task<EN, RN>]} arr - Array of Tasks to traverse
    * @returns {Task<E | E2 | ... | EN, [R, R1, ... , RN]>} Task of array of resolved Tasks
    */
-  static allSeq<T extends readonly Task<any, any>[]>(arr: [...T]): RemapTasks<T> {
+  static allSeq<T extends readonly any[]>(arr: T): RemapTasks<T> {
     return arr.reduce(
-      (acc, x) => x.bind(t => acc.map(listOfT => [...listOfT, t])),
+      (acc, x) => x.bind((t: any) => acc.map((listOfT: any) => [...listOfT, t])),
       Task.of([]),
     )
   }
@@ -136,9 +125,9 @@ export class Task<E, R> {
    * @returns {Task<E | E2 | ... | EN, [R, R1, ... , RN]>} Task of array of resolved Tasks
    */
 
-  static all<T extends readonly Task<any, any>[]>(arr: [...T]): RemapTasks<T> {
+  static all<T extends readonly any[]>(arr: T): RemapTasks<T> {
     return arr.reduce(
-      (acc, tv) => acc.chain(list => Task.of((el: any) => [...list, el])).apTo(tv),
+      (acc, tv) => acc.chain((list: any) => Task.of((el: any) => [...list, el])).apTo(tv),
       Task.of([]),
     )
   }
@@ -149,7 +138,7 @@ export class Task<E, R> {
    * @returns {Task<never, [Either<E, R>, Either<E1, R1>, ... , Either<EN, RN>]>} Task of array of resolved Tasks
    */
   static allSeattleSeq<T extends readonly Task<any, any>[]>(
-    arr: [...T],
+    arr: T,
   ): RemapTasksSeattle<T> {
     return arr
       .map(taskToTaskOfEither)
@@ -164,9 +153,7 @@ export class Task<E, R> {
    * @param {[Task<E, R>, Task<E1, R1>, ... , Task<EN, RN>]} arr - Array of Tasks to traverse
    * @returns {Task<never, [Either<E, R>, Either<E1, R1>, ... , Either<EN, RN>]>} Task of array of resolved Tasks
    */
-  static allSeattle<T extends readonly Task<any, any>[]>(
-    arr: [...T],
-  ): RemapTasksSeattle<T> {
+  static allSeattle<T extends readonly Task<any, any>[]>(arr: T): RemapTasksSeattle<T> {
     return arr
       .map(taskToTaskOfEither)
       .reduce(
@@ -389,22 +376,32 @@ export class Task<E, R> {
   }
 
   /**
-   * Adapts a function that returns a Task<Error, Success> to bypass Success and continue composition
-   * @param {(r: S) => Task<E, void>} f - Function that returns a Task<E, void>
+   * Adapts a function that returns a Task<Error, Success> to bypass Success and continue composition should be use with chain
+   * @param {((input: S) => Task<E, void>) | ((input: S) => void)} f - Function that returns a Task<E, void>
    * @param {S} success - Success from the previous function
    * @returns A Task<Error, Success> of the same output Success
    */
-  static tap<E, S>(f: (input: S) => Task<E, void>): (i: S) => Task<E, S> {
-    return input => f(input).map(() => input)
+  static tap<E, S>(
+    f: ((input: S) => Task<E, void>) | ((input: S) => void),
+  ): (i: S) => Task<E, S> {
+    return input => {
+      const r = f(input)
+      return r instanceof Task ? r.map(() => input) : Task.of(input)
+    }
   }
 
   /**
-   * Adapts a function that returns a Task<Error, Success> to bypass error and continue composition
-   * @param {(r: S) => Task<void, E>} f - Function that returns a Task<void, Error>
+   * Adapts a function that returns a Task<Error, Success> to bypass error and continue composition should be use with orElse
+   * @param {((input: E) => Task<void, S>) | ((input: E) => void)} f - Function that returns a Task<void, Error>
    * @param {E} failure - Failure of the previous function
    * @returns A Task<Error, Success> of the same failure Error
    */
-  static rejectTap<E, S>(f: (input: E) => Task<void, S>): (i: E) => Task<E, S> {
-    return failure => f(failure).rejectMap(() => failure)
+  static rejectTap<E, S>(
+    f: ((input: E) => Task<void, S>) | ((input: E) => void),
+  ): (i: E) => Task<E, S> {
+    return failure => {
+      const r = f(failure)
+      return r instanceof Task ? r.rejectMap(() => failure) : Task.rejected(failure)
+    }
   }
 }

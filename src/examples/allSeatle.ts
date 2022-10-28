@@ -1,3 +1,4 @@
+import { Either } from 'monet'
 import { Task } from '../lib/task'
 
 export function run() {
@@ -31,3 +32,9 @@ export function run() {
     },
   )
 }
+
+type Wraper<X> = { x: X }
+
+type Remap<T extends readonly unknown[] | []> = Wraper<{ [P in keyof T]: T[P] }>
+
+type Final = Remap<[number, boolean, string]>

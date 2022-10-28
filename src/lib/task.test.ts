@@ -124,31 +124,42 @@ describe('Async Task typeclass tests', () => {
 
   it('should be able to tap', () => {
     const fn = jest.fn().mockImplementation(() => Task.of(expect('ok').toBe('ok')))
+    const fn2 = jest.fn().mockImplementation(() => expect('ok').toBe('ok'))
 
     Task.of(1)
       .chain(Task.tap(fn))
+      .chain(Task.tap(fn2))
       .fork(throwShouldNotHappen, r => {
         expect(fn).toHaveBeenCalled()
+        expect(fn2).toHaveBeenCalled()
         expect(r).toBe(1)
       })
   })
 
   it('should be able to reject tap', () => {
     const fn = jest.fn().mockImplementation(() => Task.rejected(expect('ok').toBe('ok')))
+    const fn2 = jest.fn().mockImplementation(() => expect('ok').toBe('ok'))
 
     Task.rejected(1)
       .orElse(Task.rejectTap(fn))
+      .orElse(Task.rejectTap(fn2))
       .fork(f => {
         expect(fn).toHaveBeenCalled()
+        expect(fn2).toHaveBeenCalled()
         expect(f).toBe(1)
       }, throwShouldNotHappen)
   })
 
   it('should process a series of successful tasks', () => {
-    Task.all([Task.of(1), Task.of(2)]).fork(throwShouldNotHappen, ([n1, n2]) => {
-      expect(n1).toBe(1)
-      expect(n2).toBe(2)
-    })
+    Task.all([Task.of(1), Task.of('2')] as const).fork(
+      throwShouldNotHappen,
+      ([n1, n2]) => {
+        expect(n1).toBe(1)
+        expect(typeof n1 == 'number').toBeTruthy()
+        expect(n2).toBe('2')
+        expect(typeof n2 == 'string').toBeTruthy()
+      },
+    )
   })
 
   it('should process a series of successful tasks but get first failure', () => {
