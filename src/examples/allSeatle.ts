@@ -1,4 +1,3 @@
-import { Either } from 'monet'
 import { Task } from '../lib/task'
 
 export function run() {

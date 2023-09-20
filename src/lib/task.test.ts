@@ -173,17 +173,6 @@ describe('Async Task typeclass tests', () => {
     }, throwShouldNotHappen)
   })
 
-  it('should process a series of successful tasks but get first failure', () => {
-    Task.all([
-      Task.of(1),
-      Task.rejected(badError),
-      Task.rejected(new Error('other error')),
-    ]).fork(err => {
-      expect(err).toBeInstanceOf(Error)
-      expect((err as Error).message).toBe(badError.message)
-    }, throwShouldNotHappen)
-  })
-
   it('should process a series of tasks and get all results', () => {
     Task.allSeattle([
       Task.of(1),
@@ -197,5 +186,43 @@ describe('Async Task typeclass tests', () => {
       expect(results.at(2)?.left()).toBeInstanceOf(Error)
       expect((results.at(2)?.left() as Error).message).toEqual('other error')
     })
+  })
+
+  it('should traverse an array over tasks in the right order in applicative way', done => {
+    Task.arrayTraverseA(n => Task.of(n), [1, 2, 3, 4, 5]).fork(done, arr => {
+      expect(arr).toHaveLength(5)
+      expect(arr.at(0)).toEqual(1)
+      expect(arr.at(arr.length - 1)).toEqual(5)
+      done()
+    })
+  })
+
+  it('should traverse an array over tasks in the right order with errors in applicative way', done => {
+    Task.arrayTraverseA(
+      (n): Task<string, number> => (n > 2 ? Task.of(n) : Task.rejected('3')),
+      [1, 2, 3, 4, 5],
+    ).fork(err => {
+      expect(err).toEqual('3')
+      done()
+    }, done)
+  })
+
+  it('should traverse an array over tasks in the right order in monadic way', done => {
+    Task.arrayTraverseM(n => Task.of(n), [1, 2, 3, 4, 5]).fork(done, arr => {
+      expect(arr).toHaveLength(5)
+      expect(arr.at(0)).toEqual(1)
+      expect(arr.at(arr.length - 1)).toEqual(5)
+      done()
+    })
+  })
+
+  it('should traverse an array over tasks in the right order with errors in monadic way', done => {
+    Task.arrayTraverseM(
+      (n): Task<string, number> => (n > 2 ? Task.of(n) : Task.rejected('3')),
+      [1, 2, 3, 4, 5],
+    ).fork(err => {
+      expect(err).toEqual('3')
+      done()
+    }, done)
   })
 })

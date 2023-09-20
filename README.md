@@ -37,7 +37,7 @@ const getTwo = new Task<Error, number>((_, res) => setTimeout(() => res(2), 1000
 const getThree = new Task<Error, number>((_, res) => setTimeout(() => res(3), 1500))
 
 console.time('run')
-Task.of((x: number) => (y: string) => (z: number) => x + z + y)
+Task.of((x: number) => (y: number) => (z: number) => x + z + y)
   .apTo(getOne)
   .apTo(getTwo)
   .apTo(getThree)

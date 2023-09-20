@@ -1,5 +1,35 @@
 import { Either } from 'monet'
 
+const synchronize = <E, R = unknown>(rej: (err: E) => void, res: (v: R) => void) => {
+  let fn: null | Function = null
+  let val: null | R = null
+  let rejected = false
+  const rejecter = (err: E) => {
+    if (rejected) return
+
+    rejected = true
+    rej(err)
+  }
+  const resolver =
+    <F, V>(setter: (x: F | V) => void) =>
+    (x: F | V) => {
+      if (rejected) return
+
+      setter(x)
+      if (fn != null && val != null) res(fn(val))
+    }
+
+  return {
+    guardReject: rejecter,
+    resolveFn: resolver((f: Function) => {
+      fn = f
+    }),
+    resolveValue: resolver((v: R) => {
+      val = v
+    }),
+  }
+}
+
 const taskToTaskOfEither = <E, R>(t: Task<E, R>): Task<never, Either<E, R>> =>
   new Task((_, res) => {
     t.fork(
@@ -108,13 +138,39 @@ export class Task<E, R> {
   }
 
   /**
+   * Traverses an array in applicative way transforming every element into a task and running them in parallel
+   * @param {(A) => Task<E, B>} f - Function maps an item to a Task
+   * @param {Array<A>} arr - array of elements to be traversed
+   * @returns {Task<E, Array<B>>} a Task containing an array of transformed elements
+   */
+  static arrayTraverseA<E, R, R2>(f: (item: R) => Task<E, R2>, arr: R[]): Task<E, R2[]> {
+    const cons = (x: R2) => (xs: R2[]) => xs.concat([x])
+    return arr.reduce(
+      (tl, i) => Task.of<E, typeof cons>(cons).apTo(f(i)).apTo(tl),
+      Task.of<E, R2[]>([]),
+    )
+  }
+
+  /**
+   * Traverses an array in a monadic way transforming every element into a task and running them in sequence
+   * @param {(A) => Task<E, B>} f - Function maps an item to a Task
+   * @param {Array<A>} arr - array of elements to be traversed
+   * @returns {Task<E, Array<B>>} a Task containing an array of transformed elements
+   */
+  static arrayTraverseM<E, R, R2>(f: (item: R) => Task<E, R2>, arr: R[]): Task<E, R2[]> {
+    return arr.reduce(
+      (tl, i) => tl.chain(xs => f(i).chain(x => Task.of(xs.concat(x)))),
+      Task.of<E, R2[]>([]),
+    )
+  }
+  /**
    * Mimics Promise.all() behaviour but runs sequentially a list of Tasks, fails when some one fails
    * @param {[Task<E, R>, Task<E1, R1>, ... , Task<EN, RN>]} arr - Array of Tasks to traverse
    * @returns {Task<E | E2 | ... | EN, [R, R1, ... , RN]>} Task of array of resolved Tasks
    */
   static allSeq<T extends readonly any[]>(arr: T): RemapTasks<T> {
     return arr.reduce(
-      (acc, x) => x.bind((t: any) => acc.map((listOfT: any) => [...listOfT, t])),
+      (acc, x) => acc.chain((listOfT: T[]) => x.map((t: T) => [...listOfT, t])),
       Task.of([]),
     )
   }
@@ -127,7 +183,7 @@ export class Task<E, R> {
 
   static all<T extends readonly any[]>(arr: T): RemapTasks<T> {
     return arr.reduce(
-      (acc, tv) => acc.chain((list: any) => Task.of((el: any) => [...list, el])).apTo(tv),
+      (acc, tv) => tv.chain((el: T) => Task.of((list: T[]) => [...list, el])).apTo(acc),
       Task.of([]),
     )
   }
@@ -143,7 +199,7 @@ export class Task<E, R> {
     return arr
       .map(taskToTaskOfEither)
       .reduce(
-        (acc, x: any) => x.bind((t: any) => acc.map(listOfT => [...listOfT, t])),
+        (acc, x: any) => x.chain((t: any) => acc.map(listOfT => [...listOfT, t])),
         Task.of([]),
       ) as any
   }
@@ -164,6 +220,36 @@ export class Task<E, R> {
   }
 
   /**
+   * Adapts a function that returns a Task<Error, Success> to bypass Success and continue composition should be use with chain
+   * @param {((input: S) => Task<E, void>) | ((input: S) => void)} f - Function that returns a Task<E, void>
+   * @param {S} success - Success from the previous function
+   * @returns A Task<Error, Success> of the same output Success
+   */
+  static tap<E, S>(
+    f: ((input: S) => Task<E, void>) | ((input: S) => void),
+  ): (i: S) => Task<E, S> {
+    return input => {
+      const r = f(input)
+      return r instanceof Task ? r.map(() => input) : Task.of(input)
+    }
+  }
+
+  /**
+   * Adapts a function that returns a Task<Error, Success> to bypass error and continue composition should be use with orElse
+   * @param {((input: E) => Task<void, S>) | ((input: E) => void)} f - Function that returns a Task<void, Error>
+   * @param {E} failure - Failure of the previous function
+   * @returns A Task<Error, Success> of the same failure Error
+   */
+  static rejectTap<E, S>(
+    f: ((input: E) => Task<void, S>) | ((input: E) => void),
+  ): (i: E) => Task<E, S> {
+    return failure => {
+      const r = f(failure)
+      return r instanceof Task ? r.rejectMap(() => failure) : Task.rejected(failure)
+    }
+  }
+
+  /**
    * Applys the successful value of the `Task<E, R>` to the successful
    * value of the `Task<E, (R → O)>`
    * @param {Task<E, (r: R) => O>} to - Task holding an `(R → O)` on the success path
@@ -171,43 +257,10 @@ export class Task<E, R> {
    */
   ap<Y>(tf: Task<E, (x: R) => Y>): Task<E, Y> {
     return new Task((reject, resolve) => {
-      let fn: (x: R) => Y
-      let funcResolved = false
-      let v: R
-      let valResolved = false
-      let rejected = false
+      const { guardReject, resolveFn, resolveValue } = synchronize<E, Y>(reject, resolve)
 
-      const guardReject = (x: E) => {
-        if (!rejected) {
-          rejected = true
-          return reject(x)
-        }
-      }
-
-      const guardResolver = (setter: (x: any) => void) => (x: any) => {
-        if (rejected) {
-          return
-        }
-
-        setter(x)
-        return funcResolved && valResolved ? resolve(fn(v)) : x
-      }
-
-      this.fork(
-        guardReject,
-        guardResolver(x => {
-          valResolved = true
-          v = x
-        }),
-      )
-
-      tf.fork(
-        guardReject,
-        guardResolver(x => {
-          funcResolved = true
-          fn = x
-        }),
-      )
+      this.fork(guardReject, resolveValue as any)
+      tf.fork(guardReject, resolveFn)
     })
   }
 
@@ -219,48 +272,11 @@ export class Task<E, R> {
    */
   apTo<O>(to: Task<E, O>): R extends (arg: O) => any ? Task<E, ReturnType<R>> : never {
     return new Task((reject, resolve) => {
-      let fn: any
-      let funcResolved = false
-      let v: O
-      let valResolved = false
-      let rejected = false
+      const { guardReject, resolveFn, resolveValue } = synchronize<E, O>(reject, resolve)
 
-      const guardReject = (x: E) => {
-        if (!rejected) {
-          rejected = true
-          return reject(x)
-        }
-      }
-
-      const guardResolver = (setter: (x: any) => void) => (x: any) => {
-        if (rejected) {
-          return
-        }
-
-        setter(x)
-        return funcResolved && valResolved ? resolve(fn(v)) : x
-      }
-
-      this.fork(
-        guardReject,
-        guardResolver(x => {
-          funcResolved = true
-          fn = x
-        }),
-      )
-
-      to.fork(
-        guardReject,
-        guardResolver(x => {
-          valResolved = true
-          v = x
-        }),
-      )
+      to.fork(guardReject, resolveValue)
+      this.fork(guardReject, resolveFn as any)
     }) as any
-  }
-
-  static map<E, R, T>(f: (r: R) => T): (t: Task<E, R>) => Task<E, T> {
-    return t => t.map(f)
   }
 
   /**
@@ -373,35 +389,5 @@ export class Task<E, R> {
    */
   toPromise(): Promise<R> {
     return new Promise((resolve, reject) => this.fork(reject, resolve))
-  }
-
-  /**
-   * Adapts a function that returns a Task<Error, Success> to bypass Success and continue composition should be use with chain
-   * @param {((input: S) => Task<E, void>) | ((input: S) => void)} f - Function that returns a Task<E, void>
-   * @param {S} success - Success from the previous function
-   * @returns A Task<Error, Success> of the same output Success
-   */
-  static tap<E, S>(
-    f: ((input: S) => Task<E, void>) | ((input: S) => void),
-  ): (i: S) => Task<E, S> {
-    return input => {
-      const r = f(input)
-      return r instanceof Task ? r.map(() => input) : Task.of(input)
-    }
-  }
-
-  /**
-   * Adapts a function that returns a Task<Error, Success> to bypass error and continue composition should be use with orElse
-   * @param {((input: E) => Task<void, S>) | ((input: E) => void)} f - Function that returns a Task<void, Error>
-   * @param {E} failure - Failure of the previous function
-   * @returns A Task<Error, Success> of the same failure Error
-   */
-  static rejectTap<E, S>(
-    f: ((input: E) => Task<void, S>) | ((input: E) => void),
-  ): (i: E) => Task<E, S> {
-    return failure => {
-      const r = f(failure)
-      return r instanceof Task ? r.rejectMap(() => failure) : Task.rejected(failure)
-    }
   }
 }
